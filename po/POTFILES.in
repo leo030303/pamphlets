@@ -1,0 +1,6 @@
+data/com.github.leo030303.pamphlets.desktop.in.in
+data/com.github.leo030303.pamphlets.gschema.xml.in
+data/com.github.leo030303.pamphlets.metainfo.xml.in.in
+data/resources/ui/shortcuts.ui
+src/app.rs
+src/main.rs
