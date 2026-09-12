@@ -1,11 +1,11 @@
 {
     "id": "com.github.leo030303.pamphlets.Devel",
     "runtime": "org.gnome.Platform",
-    "runtime-version": "49",
+    "runtime-version": "50",
     "sdk": "org.gnome.Sdk",
     "sdk-extensions": [
         "org.freedesktop.Sdk.Extension.rust-stable",
-        "org.freedesktop.Sdk.Extension.llvm21"
+        "org.freedesktop.Sdk.Extension.llvm22"
     ],
     "command": "pamphlets",
     "finish-args": [
@@ -13,12 +13,13 @@
         "--socket=fallback-x11",
         "--socket=wayland",
         "--device=dri",
+        "--share=network",
         "--env=RUST_LOG=pamphlets=debug",
         "--env=G_MESSAGES_DEBUG=none",
         "--env=RUST_BACKTRACE=1"
     ],
     "build-options": {
-        "append-path": "/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm21/bin",
+        "append-path": "/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm22/bin",
         "build-args": [
             "--share=network"
         ],
@@ -36,6 +37,58 @@
     },
     "modules": [
         {
+            "name": "pandoc",
+            "buildsystem": "simple",
+            "build-commands": [
+                "mkdir -p /app/bin && cp bin/pandoc /app/bin/pandoc"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/jgm/pandoc/releases/download/3.10.1/pandoc-3.10.1-linux-amd64.tar.gz",
+                    "sha256": "72948bf5784f560d5ad1876709daca27e0667f262da727bb33f77b58e52df2f5",
+                    "only-arches": [
+                        "x86_64"
+                    ]
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/jgm/pandoc/releases/download/3.10.1/pandoc-3.10.1-linux-arm64.tar.gz",
+                    "sha256": "cd3963da375793a4804c65ae538b4f7b9c23f87cac7f6c74a1cf5e2fff7e8d59",
+                    "only-arches": [
+                        "aarch64"
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "tectonic",
+            "buildsystem": "simple",
+            "build-commands": [
+                "mkdir -p /app/bin && cp ./tectonic /app/bin/tectonic"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.17.0/tectonic-0.17.0-x86_64-unknown-linux-gnu.tar.gz",
+                    "sha256": "1a715688baf591e650c8aeb160ae934e181685eecbb38b317de30b269ac5d606",
+                    "strip-components": 0,
+                    "only-arches": [
+                        "x86_64"
+                    ]
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.17.0/tectonic-0.17.0-aarch64-unknown-linux-musl.tar.gz",
+                    "sha256": "b10954a95404f3ab2328d2fa59a5ebab8e657f893fab096f98be8db7c0c979b8",
+                    "strip-components": 0,
+                    "only-arches": [
+                        "aarch64"
+                    ]
+                }
+            ]
+        },
+        {
             "name": "pamphlets",
             "buildsystem": "meson",
             "run-tests": true,
@@ -51,4 +104,3 @@
         }
     ]
 }
-

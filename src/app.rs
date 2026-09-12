@@ -1,7 +1,12 @@
+use std::path::PathBuf;
+
+use pandoc::{OutputKind, PandocOption};
 use relm4::{
     Component, ComponentParts, ComponentSender, SimpleComponent,
     actions::{AccelsPlus, RelmAction, RelmActionGroup},
-    adw, gtk, main_application,
+    adw,
+    gtk::{self, gio::prelude::FileExt, prelude::ButtonExt},
+    main_application,
 };
 
 use gtk::prelude::{ApplicationExt, GtkWindowExt, OrientableExt, SettingsExt, WidgetExt};
@@ -10,11 +15,18 @@ use gtk::{gio, glib};
 use crate::config::{APP_ID, PROFILE};
 use crate::modals::{about::AboutDialog, shortcuts::ShortcutsDialog};
 
-pub(super) struct App {}
+pub(super) struct App {
+    pub output_file: Option<PathBuf>,
+}
 
 #[derive(Debug)]
 pub(super) enum AppMsg {
     Quit,
+    PickedOutputFile(PathBuf),
+    ExportDocument(PathBuf),
+    ExportComplete,
+    PickInputFile,
+    PickOutputFile,
 }
 
 relm4::new_action_group!(pub(super) WindowActionGroup, "win");
@@ -65,10 +77,17 @@ impl SimpleComponent for App {
                     }
                 },
 
-                gtk::Label {
-                    set_label: "Hello world!",
-                    add_css_class: "title-header",
-                    set_vexpand: true,
+                gtk::Button {
+                    set_label: "Pick output file",
+                    connect_clicked => AppMsg::PickOutputFile
+                },
+                gtk::Button {
+                    set_label: "Pick input file",
+                    connect_clicked => AppMsg::PickInputFile
+                },
+                gtk::Label{
+                    #[watch]
+                    set_label: &model.output_file.as_ref().map(|file| file.to_string_lossy().to_string()).unwrap_or_default(),
                 }
             }
 
@@ -80,7 +99,7 @@ impl SimpleComponent for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = Self {};
+        let model = Self { output_file: None };
         let widgets = view_output!();
 
         let app = root.application().unwrap();
@@ -117,9 +136,64 @@ impl SimpleComponent for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             AppMsg::Quit => main_application().quit(),
+            AppMsg::ExportComplete => {}
+            AppMsg::PickInputFile => {
+                let sender = sender.clone();
+
+                relm4::spawn_local(async move {
+                    let file_filter =
+                        ashpd::desktop::file_chooser::FileFilter::new("MD").glob("*.md");
+                    let file_request = ashpd::desktop::file_chooser::OpenFileRequest::default()
+                        .filter(file_filter)
+                        .multiple(false);
+                    if let Ok(file_response) = file_request.send().await.unwrap().response() {
+                        let file_uri = file_response.uris().first().unwrap();
+
+                        let source_file = gio::File::for_uri(file_uri.as_str());
+                        let input_path = source_file.path().unwrap();
+
+                        sender.input(AppMsg::ExportDocument(input_path));
+                    }
+                });
+            }
+            AppMsg::PickedOutputFile(output_file) => {
+                self.output_file = Some(output_file);
+            }
+            AppMsg::PickOutputFile => {
+                let sender = sender.clone();
+
+                relm4::spawn_local(async move {
+                    let file_filter =
+                        ashpd::desktop::file_chooser::FileFilter::new("PDF").glob("*.pdf");
+                    let file_request = ashpd::desktop::file_chooser::SaveFileRequest::default()
+                        .filter(file_filter);
+                    if let Ok(file_response) = file_request.send().await.unwrap().response() {
+                        let file_uri = file_response.uris().first().unwrap();
+
+                        let source_file = gio::File::for_uri(file_uri.as_str());
+                        let output_path = source_file.path().unwrap();
+
+                        sender.input(AppMsg::PickedOutputFile(output_path));
+                    }
+                });
+            }
+            AppMsg::ExportDocument(input_path) => {
+                let sender = sender.clone();
+                let output_path = self.output_file.clone().unwrap();
+
+                relm4::spawn_local(async move {
+                    let mut pandoc = pandoc::new();
+                    pandoc.add_input(&input_path);
+                    pandoc.add_option(PandocOption::PdfEngine(PathBuf::from("tectonic")));
+                    pandoc.set_output(OutputKind::File(output_path));
+                    pandoc.set_show_cmdline(true);
+                    pandoc.execute().unwrap();
+                    sender.input(AppMsg::ExportComplete);
+                });
+            }
         }
     }
 
