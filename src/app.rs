@@ -2,31 +2,39 @@ use std::path::PathBuf;
 
 use pandoc::{OutputKind, PandocOption};
 use relm4::{
-    Component, ComponentParts, ComponentSender, SimpleComponent,
+    Component, ComponentParts, ComponentSender, RelmWidgetExt, SimpleComponent,
     actions::{AccelsPlus, RelmAction, RelmActionGroup},
     adw,
     gtk::{self, gio::prelude::FileExt, prelude::ButtonExt},
     main_application,
+    prelude::FactoryVecDeque,
 };
 
 use gtk::prelude::{ApplicationExt, GtkWindowExt, OrientableExt, SettingsExt, WidgetExt};
 use gtk::{gio, glib};
 
-use crate::config::{APP_ID, PROFILE};
 use crate::modals::{about::AboutDialog, shortcuts::ShortcutsDialog};
+use crate::{
+    config::{APP_ID, PROFILE},
+    ui::input_file_row_widget::InputFileWidget,
+};
 
 pub(super) struct App {
+    pub input_files: Vec<PathBuf>,
+    pub input_files_widgets: FactoryVecDeque<InputFileWidget>,
     pub output_file: Option<PathBuf>,
 }
 
 #[derive(Debug)]
-pub(super) enum AppMsg {
+pub enum AppMsg {
     Quit,
     PickedOutputFile(PathBuf),
-    ExportDocument(PathBuf),
+    ExportDocument,
     ExportComplete,
-    PickInputFile,
+    OpenInputFilePicker,
+    AddInputFiles(Vec<PathBuf>),
     PickOutputFile,
+    RemoveInputFile(PathBuf),
 }
 
 relm4::new_action_group!(pub(super) WindowActionGroup, "win");
@@ -77,17 +85,45 @@ impl SimpleComponent for App {
                     }
                 },
 
-                gtk::Button {
-                    set_label: "Pick output file",
-                    connect_clicked => AppMsg::PickOutputFile
-                },
-                gtk::Button {
-                    set_label: "Pick input file",
-                    connect_clicked => AppMsg::PickInputFile
-                },
-                gtk::Label{
-                    #[watch]
-                    set_label: &model.output_file.as_ref().map(|file| file.to_string_lossy().to_string()).unwrap_or_default(),
+                if model.input_files.is_empty() {
+                    adw::StatusPage {
+                        set_title: "Pick your files",
+                        set_description: Some("Select the markdown files you want to create your document from"),
+                        set_icon_name: Some("x-office-document-symbolic"),
+                        set_hexpand: true,
+                        set_vexpand: true,
+                        gtk::Button {
+                            set_label: "Pick Files",
+                            set_css_classes: &["pill", "suggested-action"],
+                            set_halign: gtk::Align::Center,
+                            connect_clicked => AppMsg::OpenInputFilePicker,
+                        }
+
+                    }
+                } else {
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+
+                        #[local_ref]
+                        input_files_list_box -> gtk::ListBox {
+                            set_css_classes: &["boxed-list"],
+                            set_margin_all: 10,
+                        },
+                        gtk::Button {
+                            set_label: "Pick Export Path",
+                            connect_clicked => AppMsg::PickOutputFile
+                        },
+                        gtk::Button {
+                            set_label: "Export",
+                            #[watch]
+                            set_visible: model.output_file.is_some(),
+                            connect_clicked => AppMsg::ExportDocument
+                        },
+                        gtk::Label{
+                            #[watch]
+                            set_label: &model.output_file.as_ref().map(|file| file.to_string_lossy().to_string()).unwrap_or_default(),
+                        }
+                    }
                 }
             }
 
@@ -99,7 +135,15 @@ impl SimpleComponent for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = Self { output_file: None };
+        let input_files_widgets: FactoryVecDeque<InputFileWidget> = FactoryVecDeque::builder()
+            .launch(gtk::ListBox::default())
+            .forward(sender.input_sender(), |output| output);
+        let model = Self {
+            input_files: vec![],
+            input_files_widgets,
+            output_file: None,
+        };
+        let input_files_list_box = model.input_files_widgets.widget();
         let widgets = view_output!();
 
         let app = root.application().unwrap();
@@ -140,7 +184,7 @@ impl SimpleComponent for App {
         match message {
             AppMsg::Quit => main_application().quit(),
             AppMsg::ExportComplete => {}
-            AppMsg::PickInputFile => {
+            AppMsg::OpenInputFilePicker => {
                 let sender = sender.clone();
 
                 relm4::spawn_local(async move {
@@ -148,19 +192,36 @@ impl SimpleComponent for App {
                         ashpd::desktop::file_chooser::FileFilter::new("MD").glob("*.md");
                     let file_request = ashpd::desktop::file_chooser::OpenFileRequest::default()
                         .filter(file_filter)
-                        .multiple(false);
+                        .multiple(true);
                     if let Ok(file_response) = file_request.send().await.unwrap().response() {
-                        let file_uri = file_response.uris().first().unwrap();
+                        let input_files = file_response
+                            .uris()
+                            .iter()
+                            .filter_map(|file_uri| gio::File::for_uri(file_uri.as_str()).path())
+                            .collect();
 
-                        let source_file = gio::File::for_uri(file_uri.as_str());
-                        let input_path = source_file.path().unwrap();
-
-                        sender.input(AppMsg::ExportDocument(input_path));
+                        sender.input(AppMsg::AddInputFiles(input_files));
                     }
                 });
             }
+            AppMsg::AddInputFiles(new_files) => {
+                self.input_files.extend(new_files.clone());
+                for item in new_files {
+                    self.input_files_widgets.guard().push_back(item);
+                }
+            }
             AppMsg::PickedOutputFile(output_file) => {
                 self.output_file = Some(output_file);
+            }
+            AppMsg::RemoveInputFile(file_to_remove) => {
+                if let Some(file_index) = self
+                    .input_files
+                    .iter()
+                    .position(|file| **file == file_to_remove)
+                {
+                    self.input_files.remove(file_index);
+                    self.input_files_widgets.guard().remove(file_index);
+                }
             }
             AppMsg::PickOutputFile => {
                 let sender = sender.clone();
@@ -180,13 +241,16 @@ impl SimpleComponent for App {
                     }
                 });
             }
-            AppMsg::ExportDocument(input_path) => {
+            AppMsg::ExportDocument => {
                 let sender = sender.clone();
                 let output_path = self.output_file.clone().unwrap();
+                let input_paths = self.input_files.clone();
 
                 relm4::spawn_local(async move {
                     let mut pandoc = pandoc::new();
-                    pandoc.add_input(&input_path);
+                    for input in input_paths {
+                        pandoc.add_input(&input);
+                    }
                     pandoc.add_option(PandocOption::PdfEngine(PathBuf::from("tectonic")));
                     pandoc.set_output(OutputKind::File(output_path));
                     pandoc.set_show_cmdline(true);
