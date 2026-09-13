@@ -89,6 +89,32 @@
             ]
         },
         {
+            "name": "poppler",
+            "buildsystem": "cmake-ninja",
+            "config-opts": [
+                "-DCMAKE_INSTALL_LIBDIR=/app/lib",
+                "-DCMAKE_INSTALL_INCLUDEDIR=/app/include",
+                "-DBUILD_GTK_TESTS=OFF",
+                "-DBUILD_CPP_TESTS=OFF",
+                "-DENABLE_CPP=OFF",
+                "-DENABLE_BOOST=OFF",
+                "-DENABLE_GOBJECT_INTROSPECTION=OFF",
+                "-DENABLE_LIBOPENJPEG=openjpeg2",
+                "-DENABLE_QT5=OFF",
+                "-DENABLE_QT6=OFF"
+            ],
+            "cleanup": [
+                "/bin"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://gitlab.freedesktop.org/poppler/poppler.git",
+                    "branch": "master"
+                }
+            ]
+        },
+        {
             "name": "pamphlets",
             "buildsystem": "meson",
             "run-tests": true,
