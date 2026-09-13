@@ -11,7 +11,7 @@ lto = true
 
 [dependencies]
 ashpd = {version = "0.13.13", features = ["file_chooser"]}
-gettext-rs = { version = "0.7.7", features = ["gettext-system"] }
+gettext-rs = { version = "0.8.0", features = ["gettext-system"] }
 pandoc = "0.8.11"
 poppler-rs = "0.26.0"
 relm4 = { version = "0.11.0", features = ["libadwaita", "gnome_49"] }
